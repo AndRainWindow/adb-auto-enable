@@ -28,7 +28,9 @@ Android 14 introduces enhanced ADB security which disables and randomises the po
 ### Requirements:
 
 - Android 14+ (tested on Chromecast with Google TV and modern Android builds)
-- Wi-Fi connection
+- A Wi-Fi connection: It may be possible to use an unrouted routed wifi connection to start the service, see issue [#24](https://github.com/mouldybread/adb-auto-enable/issues/24)
+- WRITE_SECURE_SETTINGS: The app needs this permission and grants it to itself. Some OEM builds block this, so the grant fails or doesn't persist. See issue [#25](https://github.com/mouldybread/adb-auto-enable/issues/25).
+
 ### 1. Installation
 
 Download and install the APK from [Releases](https://github.com/mouldybread/adb-auto-enable/releases), or build from source:
