@@ -22,6 +22,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -210,53 +212,117 @@ public class AdbHelper {
      * @return true if command was sent successfully
      */
     public boolean switchToPort(String host, int port, int targetPort) {
-        SimpleAdbManager manager = null;
-        try {
-            Log.i(TAG, "switchToPort: Starting with host=" + host + ", port=" + port + ", targetPort=" + targetPort);
-            manager = new SimpleAdbManager(context);
+        final int maxAttempts = 3;
 
-            Log.i(TAG, "switchToPort: Calling connect(" + host + ":" + port + ")");
-            manager.connect(host, port);
-            Log.i(TAG, "switchToPort: connect() completed successfully");
+        Log.i(TAG, "switchToPort: source=" + host + ":" + port
+                + ", targetPort=" + targetPort);
 
-            Log.i(TAG, "switchToPort: Waiting for connection to stabilize");
-            Thread.sleep(200);
+        // If the requested listener is already up, do not disturb adbd again.
+        if (waitForTcpListener(host, targetPort, 300)) {
+            Log.i(TAG, "switchToPort: target port " + targetPort + " is already reachable");
+            return true;
+        }
 
-            Log.i(TAG, "switchToPort: Sending tcpip:" + targetPort + " service command");
-            try (AdbStream stream = manager.openStream("tcpip:" + targetPort);
-                 InputStream inputStream = stream.openInputStream()) {
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            SimpleAdbManager manager = null;
+            boolean serviceOpened = false;
+            String response = "";
+            try {
+                Log.i(TAG, "switchToPort: attempt " + attempt + "/" + maxAttempts
+                        + " connecting to " + host + ":" + port);
+                manager = new SimpleAdbManager(context);
+                manager.connect(host, port);
 
-                Log.i(TAG, "switchToPort: Reading response from stream");
-                byte[] buffer = new byte[1024];
-                int bytesRead = inputStream.read(buffer);
+                // Some Android 14+ wireless-debugging transports need a brief
+                // settle period before a local service can be opened.
+                Thread.sleep(350);
 
-                if (bytesRead > 0) {
-                    String response = new String(buffer, 0, bytesRead);
-                    Log.i(TAG, "switchToPort: Response received (" + bytesRead + " bytes): " + response);
-                } else {
-                    Log.i(TAG, "switchToPort: No response data received");
+                Log.i(TAG, "switchToPort: requesting device service tcpip:" + targetPort);
+                StringBuilder output = new StringBuilder();
+                try (AdbStream stream = manager.openStream("tcpip:" + targetPort);
+                     InputStream inputStream = stream.openInputStream()) {
+                    serviceOpened = true;
+                    byte[] buffer = new byte[256];
+                    int bytesRead;
+                    while ((bytesRead = inputStream.read(buffer)) != -1) {
+                        output.append(new String(buffer, 0, bytesRead, StandardCharsets.UTF_8));
+                    }
+                } catch (IOException e) {
+                    // A successful tcpip service intentionally restarts adbd and
+                    // can tear down the TLS stream before libadb reports EOF.
+                    Log.w(TAG, "switchToPort: tcpip service stream closed: " + e.getMessage());
+                }
+
+                response = output.toString().trim();
+                if (!response.isEmpty()) {
+                    Log.i(TAG, "switchToPort: service response: " + response);
                 }
             } catch (Exception e) {
-                Log.d(TAG, "switchToPort stream read completed: " + e.getMessage());
+                Log.w(TAG, "switchToPort: attempt " + attempt
+                        + " could not complete tcpip service request", e);
+            } finally {
+                if (manager != null) {
+                    try {
+                        manager.close();
+                    } catch (Exception e) {
+                        Log.d(TAG, "switchToPort: manager close after tcpip request: "
+                                + e.getMessage());
+                    }
+                }
             }
 
-            Log.i(TAG, "switchToPort: Waiting 3000ms for ADB to restart on port " + targetPort);
-            Thread.sleep(3000);
+            // The service's observable contract is that adbd restarts with
+            // service.adb.tcp.port set. The TLS stream itself may disappear as
+            // part of that restart, so the new listener is the authoritative
+            // success signal.
+            if (waitForTcpListener(host, targetPort, 6000)) {
+                Log.i(TAG, "switchToPort: verified ADB listener at "
+                        + host + ":" + targetPort);
+                return true;
+            }
 
-            Log.i(TAG, "switchToPort: Successfully switched to port " + targetPort);
-            return true;
-        } catch (Exception e) {
-            Log.e(TAG, "switchToPort: Failed to switch to port " + targetPort, e);
-            return false;
-        } finally {
-            if (manager != null) {
+            if (serviceOpened) {
+                Log.w(TAG, "switchToPort: tcpip service opened but target listener "
+                        + targetPort + " did not appear");
+            } else {
+                Log.w(TAG, "switchToPort: tcpip service was not opened on attempt " + attempt);
+            }
+
+            if (attempt < maxAttempts) {
                 try {
-                    manager.close();
-                } catch (Exception e) {
-                    Log.e(TAG, "Error closing manager after switchToPort", e);
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
                 }
             }
         }
+
+        Log.e(TAG, "switchToPort: failed to verify target listener "
+                + host + ":" + targetPort);
+        return false;
+    }
+
+    private boolean waitForTcpListener(String host, int port, long timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        do {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(host, port), 300);
+                return true;
+            } catch (Exception ignored) {
+                // Listener may still be restarting.
+            }
+
+            if (timeoutMs <= 300) break;
+            try {
+                Thread.sleep(250);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        } while (System.nanoTime() < deadline);
+
+        return false;
     }
 
     /**
