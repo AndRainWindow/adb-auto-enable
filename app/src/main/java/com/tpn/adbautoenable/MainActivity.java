@@ -67,10 +67,37 @@ public class MainActivity extends Activity {
         TextView instructionText = new TextView(this);
         instructionText.setText("\nOpen this URL in your browser to configure pairing, target ports, and manage the app.\n\nYou can also toggle the web server directly from this screen if you want it disabled on future reboots.");
 
+        // WRITE_SECURE_SETTINGS is a development/signature permission: it cannot be
+        // requested at runtime and is lost on every uninstall/reinstall. Without it
+        // the service silently skips all Settings.Global writes. Surface the exact
+        // state and the recovery command instead of failing only in logcat.
+        TextView permissionText = new TextView(this);
+        permissionText.setTextSize(16);
+        boolean secureSettingsGranted = checkSelfPermission(
+                "android.permission.WRITE_SECURE_SETTINGS")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (secureSettingsGranted) {
+            permissionText.setText("\nWRITE_SECURE_SETTINGS: granted");
+        } else {
+            permissionText.setTextColor(0xFFC62828);
+            permissionText.setText("\nWRITE_SECURE_SETTINGS: NOT GRANTED\n"
+                    + "Wireless debugging cannot be enabled automatically.\n"
+                    + "On a computer connected via USB ADB, run:\n"
+                    + "adb shell pm grant " + getPackageName()
+                    + " android.permission.WRITE_SECURE_SETTINGS");
+        }
+
+        TextView lastStatusText = new TextView(this);
+        lastStatusText.setTextSize(14);
+        lastStatusText.setText("\nLast status: "
+                + prefs.getString("last_status", "Not run yet"));
+
         layout.addView(titleText);
         layout.addView(statusText);
         layout.addView(urlText);
         layout.addView(webServerSwitch);
+        layout.addView(permissionText);
+        layout.addView(lastStatusText);
         layout.addView(instructionText);
 
         setContentView(layout);

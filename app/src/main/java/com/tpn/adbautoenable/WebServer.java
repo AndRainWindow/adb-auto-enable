@@ -169,7 +169,11 @@ public class WebServer extends NanoHTTPD {
                         // normally different ports. Rediscover the connect endpoint.
                         AdbEndpoint endpoint = discoverEndpoint();
                         if (endpoint == null) {
-                            Log.w(TAG, "Could not discover ADB connect port for self-grant, skipping");
+                            String hint = "Failed - post-pair ADB endpoint not found; self-grant skipped. "
+                                    + "Run: adb shell pm grant " + context.getPackageName()
+                                    + " android.permission.WRITE_SECURE_SETTINGS";
+                            Log.w(TAG, hint);
+                            getPrefs().edit().putString("last_status", hint).apply();
                             return;
                         }
 
@@ -186,7 +190,11 @@ public class WebServer extends NanoHTTPD {
                         if (granted) {
                             Log.i(TAG, "Successfully self-granted WRITE_SECURE_SETTINGS permission!");
                         } else {
-                            Log.w(TAG, "Failed to self-grant permission, user will need to grant manually");
+                            String hint = "Failed - automatic WRITE_SECURE_SETTINGS self-grant unsuccessful. "
+                                    + "Run: adb shell pm grant " + context.getPackageName()
+                                    + " android.permission.WRITE_SECURE_SETTINGS";
+                            Log.w(TAG, hint);
+                            getPrefs().edit().putString("last_status", hint).apply();
                         }
 
                         TclAutostartProtection.Result policy = TclAutostartProtection.apply(
@@ -237,10 +245,21 @@ public class WebServer extends NanoHTTPD {
         boolean webServerEnabled = prefs.getBoolean("web_server_enabled", true);
 
         boolean adbTargetAvailable = checkTargetPortAvailable();
+        boolean writeSecureSettingsGranted = context.checkSelfPermission(
+                "android.permission.WRITE_SECURE_SETTINGS")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        int adbWifiEnabled = 0;
+        try {
+            adbWifiEnabled = android.provider.Settings.Global.getInt(
+                    context.getContentResolver(), "adb_wifi_enabled", 0);
+        } catch (Exception e) {
+            Log.w(TAG, "Unable to read adb_wifi_enabled", e);
+        }
 
         String json = String.format(Locale.US,
-                "{\"lastStatus\":\"%s\",\"currentPort\":%d,\"isPaired\":%b,\"adb5555Available\":%b,\"targetPort\":%d,\"webServerEnabled\":%b}",
-                lastStatus, currentPort, isPaired, adbTargetAvailable, targetPort, webServerEnabled
+                "{\"lastStatus\":\"%s\",\"currentPort\":%d,\"isPaired\":%b,\"adb5555Available\":%b,\"targetPort\":%d,\"webServerEnabled\":%b,\"writeSecureSettingsGranted\":%b,\"adbWifiEnabled\":%d,\"serviceRunning\":%b}",
+                lastStatus, currentPort, isPaired, adbTargetAvailable, targetPort,
+                webServerEnabled, writeSecureSettingsGranted, adbWifiEnabled, true
         );
         Log.d(TAG, "handleStatus() completed");
         return newFixedLengthResponse(Response.Status.OK, "application/json", json);

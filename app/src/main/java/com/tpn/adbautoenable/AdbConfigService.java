@@ -117,7 +117,10 @@ public class AdbConfigService extends Service {
             Bundle extras = intent.getExtras();
             if (extras != null) {
                 for (String key : extras.keySet()) {
-                    Log.i(TAG, "Extra: " + key + " = " + extras.getString(key));
+                    // BootReceiver and MainActivity both put a boolean "boot_config".
+                    // Reading every extra as a String threw ClassCastException on each
+                    // service start and flooded logcat with a benign stack trace.
+                    Log.i(TAG, "Extra: " + key + " = " + extras.get(key));
                 }
             } else {
                 Log.i(TAG, "Intent has no extras");
@@ -269,7 +272,7 @@ public class AdbConfigService extends Service {
                             != PackageManager.PERMISSION_GRANTED) {
                         Log.e(TAG, "Wireless ADB recovery: WRITE_SECURE_SETTINGS is not granted to "
                                 + getPackageName());
-                        updateStatus("Failed - WRITE_SECURE_SETTINGS not granted");
+                        updateStatus(secureSettingsMissingHint());
                         return;
                     }
                     try {
@@ -306,13 +309,26 @@ public class AdbConfigService extends Service {
         wirelessRecoveryThread.start();
     }
 
+    /**
+     * WRITE_SECURE_SETTINGS is a development/signature permission. It cannot be
+     * requested at runtime, is lost on every uninstall/reinstall, and can only be
+     * restored from an ADB shell or by the post-pairing self-grant. Put the exact
+     * recovery command into the persisted status so the Web UI and MainActivity
+     * can show the real cause instead of failing silently in logcat.
+     */
+    private String secureSettingsMissingHint() {
+        return "Failed - WRITE_SECURE_SETTINGS not granted to " + getPackageName()
+                + "; run: adb shell pm grant " + getPackageName()
+                + " android.permission.WRITE_SECURE_SETTINGS";
+    }
+
     private void enableWirelessDebuggingImmediately() {
         try {
             if (checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")
                     != PackageManager.PERMISSION_GRANTED) {
                 Log.e(TAG, "Cannot enable Wireless Debugging: WRITE_SECURE_SETTINGS not granted to "
                         + getPackageName());
-                updateStatus("Failed - WRITE_SECURE_SETTINGS not granted");
+                updateStatus(secureSettingsMissingHint());
                 return;
             }
 

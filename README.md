@@ -29,7 +29,16 @@ Android 14 introduces enhanced ADB security which disables and randomises the po
 
 - Android 14+ (tested on Chromecast with Google TV and modern Android builds)
 - A Wi-Fi connection: It may be possible to use an unrouted routed wifi connection to start the service, see issue [#24](https://github.com/mouldybread/adb-auto-enable/issues/24)
-- WRITE_SECURE_SETTINGS: The app needs this permission and grants it to itself. Some OEM builds block this, so the grant fails or doesn't persist. See issue [#25](https://github.com/mouldybread/adb-auto-enable/issues/25).
+- WRITE_SECURE_SETTINGS: The app needs this permission and tries to grant it to itself over the local ADB connection after pairing. Some OEM builds block this, so the grant may fail or may not persist. See issue [#25](https://github.com/mouldybread/adb-auto-enable/issues/25).
+
+> [!IMPORTANT]
+> **This permission is not part of the APK.** `WRITE_SECURE_SETTINGS` is a development/signature permission: it cannot be requested at runtime, and any grant is **lost when the app is uninstalled and reinstalled** (for example when switching between CI-built debug APKs that use different signing keys). The app shows the current state on its main screen and in `/api/status` as `writeSecureSettingsGranted`. If it is not granted, run this once from a computer connected over USB ADB:
+>
+> ```bash
+> adb shell pm grant <installed-package> android.permission.WRITE_SECURE_SETTINGS
+> ```
+>
+> Use `com.tpn.adbautoenable.debug` for the Debug build and `com.tpn.adbautoenable` for Release; confirm with `adb shell pm list packages | grep adbautoenable`. Without this permission every `Settings.Global` write is skipped, so wireless debugging never starts and port 5555 is never restored — while the build and CI still pass.
 
 ### 1. Installation
 
