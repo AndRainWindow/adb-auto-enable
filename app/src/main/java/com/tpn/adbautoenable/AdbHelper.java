@@ -62,7 +62,7 @@ public class AdbHelper {
     public boolean pair(String host, int port, String code) {
         SimpleAdbManager manager = null;
         try {
-            Log.i(TAG, "Pairing with " + host + ":" + port + " using code: " + code);
+            Log.i(TAG, "Pairing with " + host + ":" + port);
             manager = new SimpleAdbManager(context);
             manager.pair(host, port, code);
             Log.i(TAG, "Pairing successful!");
