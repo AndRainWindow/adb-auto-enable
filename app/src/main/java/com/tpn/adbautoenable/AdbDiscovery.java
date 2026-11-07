@@ -16,13 +16,27 @@ import java.util.concurrent.TimeUnit;
 @SuppressWarnings("deprecation")
 final class AdbDiscovery {
     private static final String TAG = "ADBAutoEnable";
-    private static final String TYPE = "_adb-tls-connect._tcp";
+    private static final String CONNECT_TYPE = "_adb-tls-connect._tcp";
+    private static final String PAIRING_TYPE = "_adb-tls-pairing._tcp";
     // Prevent boot and web flows from competing for the legacy resolver API.
     private static final Object DISCOVERY_LOCK = new Object();
 
     private AdbDiscovery() {}
 
     static AdbEndpoint discover(Context context) {
+        return discover(context, CONNECT_TYPE, -1);
+    }
+
+    /**
+     * Discovers the temporary Android 11+ wireless-debugging pairing service.
+     * If the Settings UI supplied a port, prefer an mDNS service advertising
+     * that exact port so we do not accidentally pair against a stale service.
+     */
+    static AdbEndpoint discoverPairing(Context context, int preferredPort) {
+        return discover(context, PAIRING_TYPE, preferredPort);
+    }
+
+    private static AdbEndpoint discover(Context context, String serviceType, int preferredPort) {
         synchronized (DISCOVERY_LOCK) {
             if (Thread.currentThread().isInterrupted()) return null;
             AdbPortDiagnostic.logTlsPort();
@@ -30,7 +44,7 @@ final class AdbDiscovery {
             NsdManager manager = (NsdManager) context.getSystemService(Context.NSD_SERVICE);
             if (manager == null) return null;
             WifiManager.MulticastLock multicast = null;
-            Session session = new Session(context, manager);
+            Session session = new Session(context, manager, preferredPort);
             boolean requested = false;
             try {
                 WifiManager wifi = (WifiManager) context.getApplicationContext()
@@ -44,15 +58,16 @@ final class AdbDiscovery {
                         Log.w(TAG, "Could not acquire multicast lock; continuing NSD discovery", e);
                     }
                 }
-                Log.i(TAG, "Discovering local ADB; LAN addresses: " + NetworkUtils.getPhysicalAddresses(context));
-                manager.discoverServices(TYPE, NsdManager.PROTOCOL_DNS_SD, session);
+                Log.i(TAG, "Discovering " + serviceType + "; LAN addresses: "
+                        + NetworkUtils.getPhysicalAddresses(context));
+                manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, session);
                 requested = true;
-                // Intentional: collect updates for the whole window, not just the first match.
-                session.failed.await(10, TimeUnit.SECONDS);
+                // Collect for the whole window unless an exact preferred port is found.
+                session.done.await(10, TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             } catch (RuntimeException e) {
-                Log.w(TAG, "mDNS discovery failed", e);
+                Log.w(TAG, "mDNS discovery failed for " + serviceType, e);
             } finally {
                 session.finish();
                 if (requested) {
@@ -63,15 +78,17 @@ final class AdbDiscovery {
             }
             if (Thread.currentThread().isInterrupted()) return null;
             AdbEndpoint result = session.result();
-            Log.i(TAG, "mDNS collection finished: " + (result == null ? "no local endpoint" : result));
+            Log.i(TAG, "mDNS collection finished for " + serviceType + ": "
+                    + (result == null ? "no local endpoint" : result));
             return result;
         }
     }
 
     private static final class Session implements NsdManager.DiscoveryListener {
-        final CountDownLatch failed = new CountDownLatch(1);
+        final CountDownLatch done = new CountDownLatch(1);
         private final Context context;
         private final NsdManager manager;
+        private final int preferredPort;
         private final ArrayDeque<NsdServiceInfo> queue = new ArrayDeque<>();
         private final Map<String, Long> generations = new HashMap<>();
         private long generation;
@@ -80,9 +97,10 @@ final class AdbDiscovery {
         private AdbEndpoint endpoint;
         private String endpointName;
 
-        Session(Context context, NsdManager manager) {
+        Session(Context context, NsdManager manager, int preferredPort) {
             this.context = context;
             this.manager = manager;
+            this.preferredPort = preferredPort;
         }
 
         synchronized void finish() { active = false; queue.clear(); }
@@ -124,9 +142,15 @@ final class AdbDiscovery {
                                 int port = info.getPort();
                                 if (host != null && port > 0 && port <= 65535
                                         && NetworkUtils.isLocalPhysicalAddress(context, host)) {
-                                    endpoint = new AdbEndpoint(host, port);
-                                    endpointName = name;
-                                    Log.i(TAG, "Accepted local ADB service " + name + " at " + endpoint);
+                                    AdbEndpoint candidate = new AdbEndpoint(host, port);
+                                    boolean exactPreferred = preferredPort > 0 && port == preferredPort;
+                                    if (endpoint == null || exactPreferred) {
+                                        endpoint = candidate;
+                                        endpointName = name;
+                                    }
+                                    Log.i(TAG, "Accepted local ADB service " + name + " at " + candidate
+                                            + (exactPreferred ? " (preferred port match)" : ""));
+                                    if (exactPreferred) done.countDown();
                                 } else {
                                     Log.i(TAG, "Ignored non-LAN/invalid ADB service " + name + " at " + host + ":" + port);
                                 }
@@ -155,7 +179,7 @@ final class AdbDiscovery {
         }
         @Override public void onStartDiscoveryFailed(String type, int error) {
             Log.w(TAG, "mDNS discovery start failed: " + error);
-            failed.countDown();
+            done.countDown();
         }
         @Override public void onStopDiscoveryFailed(String type, int error) {
             Log.w(TAG, "mDNS discovery stop failed: " + error);
