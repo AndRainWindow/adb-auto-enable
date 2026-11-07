@@ -39,12 +39,8 @@ public class MainActivity extends Activity {
         TextView statusText = new TextView(this);
         statusText.setTextSize(16);
         statusText.setText(webServerEnabled
-                ? "\
-Web interface running on:\
-"
-                : "\
-Web interface disabled (ADB service remains active).\
-");
+                ? "\nWeb interface running on:\n"
+                : "\nWeb interface disabled (ADB service remains active).\n");
 
         TextView urlText = new TextView(this);
         urlText.setTextSize(18);
