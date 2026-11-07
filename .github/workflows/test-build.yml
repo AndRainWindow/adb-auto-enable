@@ -2,6 +2,9 @@ name: Build Test APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/wireless-pairing-discovery
 
 permissions:
   contents: read
