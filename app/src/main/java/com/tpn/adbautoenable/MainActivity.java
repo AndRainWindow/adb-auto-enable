@@ -59,9 +59,9 @@ public class MainActivity extends Activity {
 
             // Notify the service to start/stop only NanoHTTPD, not the ADB
             // configuration foreground service itself.
-            Intent serviceIntent = new Intent(this, AdbConfigService.class);
-            serviceIntent.putExtra("boot_config", false);
-            startForegroundService(serviceIntent);
+            Intent toggleIntent = new Intent(this, AdbConfigService.class);
+            toggleIntent.putExtra("boot_config", false);
+            startForegroundService(toggleIntent);
         });
 
         TextView instructionText = new TextView(this);
