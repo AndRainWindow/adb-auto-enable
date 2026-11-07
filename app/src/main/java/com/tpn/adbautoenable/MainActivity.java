@@ -21,15 +21,11 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = NetworkUtils.getDeviceProtectedPrefs(this, PREFS_NAME);
         boolean webServerEnabled = prefs.getBoolean("web_server_enabled", true);
 
-        // Start or stop the foreground service to manage web server state based on user preference
-        if (webServerEnabled) {
-            Intent serviceIntent = new Intent(this, AdbConfigService.class);
-            serviceIntent.putExtra("boot_config", false);
-            startForegroundService(serviceIntent);
-        } else {
-            Intent serviceIntent = new Intent(this, AdbConfigService.class);
-            stopService(serviceIntent);
-        }
+        // The ADB service must run independently of the optional web interface.
+        // Disabling the web UI must never prevent Wireless Debugging recovery.
+        Intent serviceIntent = new Intent(this, AdbConfigService.class);
+        serviceIntent.putExtra("boot_config", false);
+        startForegroundService(serviceIntent);
 
         // Create UI
         LinearLayout layout = new LinearLayout(this);
@@ -42,7 +38,13 @@ public class MainActivity extends Activity {
 
         TextView statusText = new TextView(this);
         statusText.setTextSize(16);
-        statusText.setText("\nWeb interface running on:\n");
+        statusText.setText(webServerEnabled
+                ? "\
+Web interface running on:\
+"
+                : "\
+Web interface disabled (ADB service remains active).\
+");
 
         TextView urlText = new TextView(this);
         urlText.setTextSize(18);
@@ -59,13 +61,11 @@ public class MainActivity extends Activity {
         webServerSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean("web_server_enabled", isChecked).apply();
 
-            if (isChecked) {
-                Intent serviceIntent = new Intent(this, AdbConfigService.class);
-                serviceIntent.putExtra("boot_config", false);
-                startForegroundService(serviceIntent);
-            } else {
-                stopService(new Intent(this, AdbConfigService.class));
-            }
+            // Notify the service to start/stop only NanoHTTPD, not the ADB
+            // configuration foreground service itself.
+            Intent serviceIntent = new Intent(this, AdbConfigService.class);
+            serviceIntent.putExtra("boot_config", false);
+            startForegroundService(serviceIntent);
         });
 
         TextView instructionText = new TextView(this);
