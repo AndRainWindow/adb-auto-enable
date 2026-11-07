@@ -108,7 +108,7 @@ public class WebServer extends NanoHTTPD {
             String portStr = (portList != null && !portList.isEmpty()) ? portList.get(0) : null;
             String code = (codeList != null && !codeList.isEmpty()) ? codeList.get(0) : null;
 
-            Log.i(TAG, "Web API: Received pairing request - port: " + portStr + ", code: " + code);
+            Log.i(TAG, "Web API: Received pairing request - port: " + portStr);
 
             if (portStr == null || code == null || portStr.isEmpty() || code.isEmpty()) {
                 return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
@@ -116,9 +116,18 @@ public class WebServer extends NanoHTTPD {
             }
 
             int port = Integer.parseInt(portStr);
-            Log.i(TAG, "Web API: Pairing on port " + port + " with code " + code);
+            Log.i(TAG, "Web API: Pairing on port " + port);
 
-            boolean success = adbHelper.pair("127.0.0.1", port, code);
+            // Some Android builds bind the pairing service to the Wi-Fi IP, not loopback.
+            // Use the same LAN-aware candidate list as ADB port switching.
+            boolean success = false;
+            for (String host : NetworkUtils.getAdbCandidateHosts(context, null)) {
+                Log.i(TAG, "Web API: Trying pairing endpoint " + host + ":" + port);
+                if (adbHelper.pair(host, port, code)) {
+                    success = true;
+                    break;
+                }
+            }
 
             if (success) {
                 SharedPreferences prefs = getPrefs();
@@ -140,7 +149,7 @@ public class WebServer extends NanoHTTPD {
                         for (String host : NetworkUtils.getAdbCandidateHosts(context, endpoint.host)) {
                             Log.i(TAG, "Attempting self-grant via " + host + " on " + endpoint);
                             granted = adbHelper.selfGrantPermission(host, endpoint.port,
-                                    "com.tpn.adbautoenable", "android.permission.WRITE_SECURE_SETTINGS");
+                                    context.getPackageName(), "android.permission.WRITE_SECURE_SETTINGS");
                             if (granted) break;
                         }
 
