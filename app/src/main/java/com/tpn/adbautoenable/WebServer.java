@@ -108,39 +108,78 @@ public class WebServer extends NanoHTTPD {
             String portStr = (portList != null && !portList.isEmpty()) ? portList.get(0) : null;
             String code = (codeList != null && !codeList.isEmpty()) ? codeList.get(0) : null;
 
-            Log.i(TAG, "Web API: Received pairing request - port: " + portStr + ", code: " + code);
+            Log.i(TAG, "Web API: Received pairing request - port: " + portStr);
 
             if (portStr == null || code == null || portStr.isEmpty() || code.isEmpty()) {
                 return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
                         "{\"error\":\"Port and code required\"}");
             }
 
-            int port = Integer.parseInt(portStr);
-            Log.i(TAG, "Web API: Pairing on port " + port + " with code " + code);
+            int requestedPort = Integer.parseInt(portStr);
+            if (requestedPort < 1 || requestedPort > 65535) {
+                return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
+                        "{\"error\":\"Invalid port range (1-65535)\"}");
+            }
 
-            boolean success = adbHelper.pair("127.0.0.1", port, code);
+            Log.i(TAG, "Web API: Discovering _adb-tls-pairing._tcp for requested port "
+                    + requestedPort);
+
+            // Android 11+ advertises a temporary pairing endpoint separately from
+            // the normal _adb-tls-connect._tcp endpoint. Resolve the pairing
+            // service first instead of assuming loopback or the active Wi-Fi IP.
+            AdbEndpoint pairingEndpoint = AdbDiscovery.discoverPairing(context, requestedPort);
+            boolean success = false;
+            String pairedHost = null;
+
+            if (pairingEndpoint != null && pairingEndpoint.port == requestedPort) {
+                Log.i(TAG, "Web API: Pairing service resolved to " + pairingEndpoint);
+                success = adbHelper.pair(pairingEndpoint.host, pairingEndpoint.port, code);
+                if (success) pairedHost = pairingEndpoint.host;
+            } else {
+                if (pairingEndpoint != null) {
+                    Log.w(TAG, "Web API: Ignoring pairing service on unexpected port "
+                            + pairingEndpoint.port + "; requested " + requestedPort);
+                } else {
+                    Log.w(TAG, "Web API: Pairing mDNS service not found; trying local LAN addresses");
+                }
+
+                // Compatibility fallback for devices where NSD does not expose the
+                // pairing advertisement to the app. Never assume 127.0.0.1.
+                for (String host : NetworkUtils.getPhysicalAddresses(context)) {
+                    Log.i(TAG, "Web API: Pairing fallback via " + host + ":" + requestedPort);
+                    if (adbHelper.pair(host, requestedPort, code)) {
+                        success = true;
+                        pairedHost = host;
+                        break;
+                    }
+                }
+            }
 
             if (success) {
                 SharedPreferences prefs = getPrefs();
                 prefs.edit().putBoolean("is_paired", true).apply();
-                Log.i(TAG, "Web API: Pairing successful");
+                Log.i(TAG, "Web API: Pairing successful via " + pairedHost);
 
                 new Thread(() -> {
                     try {
                         Thread.sleep(2000);
                         Log.i(TAG, "Attempting to self-grant WRITE_SECURE_SETTINGS permission");
 
+                        // Pairing and normal ADB use different mDNS service types and
+                        // normally different ports. Rediscover the connect endpoint.
                         AdbEndpoint endpoint = discoverEndpoint();
                         if (endpoint == null) {
-                            Log.w(TAG, "Could not discover ADB port for self-grant, skipping");
+                            Log.w(TAG, "Could not discover ADB connect port for self-grant, skipping");
                             return;
                         }
 
+                        Log.i(TAG, "Discovered post-pair ADB connect endpoint " + endpoint);
                         boolean granted = false;
                         for (String host : NetworkUtils.getAdbCandidateHosts(context, endpoint.host)) {
-                            Log.i(TAG, "Attempting self-grant via " + host + " on " + endpoint);
+                            Log.i(TAG, "Attempting self-grant via " + host + ":" + endpoint.port);
                             granted = adbHelper.selfGrantPermission(host, endpoint.port,
-                                    "com.tpn.adbautoenable", "android.permission.WRITE_SECURE_SETTINGS");
+                                    context.getPackageName(),
+                                    "android.permission.WRITE_SECURE_SETTINGS");
                             if (granted) break;
                         }
 
@@ -172,11 +211,11 @@ public class WebServer extends NanoHTTPD {
                 }).start();
 
                 return newFixedLengthResponse(Response.Status.OK, "application/json",
-                        "{\"success\":true,\"message\":\"Pairing successful! Attempting to self-grant permissions...\"}");
-            } else {
-                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
-                        "{\"error\":\"Pairing failed. Make sure wireless debugging is enabled and code is correct.\"}");
+                        "{\"success\":true,\"message\":\"Pairing successful! Discovering the normal ADB endpoint and attempting self-grant...\"}");
             }
+
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "application/json",
+                    "{\"error\":\"Pairing failed. Keep the Wireless debugging pairing-code dialog open and verify its port/code.\"}");
 
         } catch (NumberFormatException e) {
             return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json",
