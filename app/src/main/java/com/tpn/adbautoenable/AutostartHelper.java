@@ -84,8 +84,14 @@ final class AutostartHelper {
         if (current == null || current.isEmpty()) {
             return BOOT_PENDING;
         }
-        String recorded = NetworkUtils.getDeviceProtectedPrefs(context, PREFS_NAME)
-                .getString(KEY_BOOT_ID, "");
+        SharedPreferences prefs = NetworkUtils.getDeviceProtectedPrefs(context, PREFS_NAME);
+        if (!prefs.contains(KEY_BOOT_ID)) {
+            // Fresh install: no boot broadcast has ever been recorded. Do not
+            // warn about a blocked autostart switch until the device has
+            // actually been rebooted with this installation.
+            return BOOT_PENDING;
+        }
+        String recorded = prefs.getString(KEY_BOOT_ID, "");
         if (current.equals(recorded)) {
             return BOOT_OK;
         }

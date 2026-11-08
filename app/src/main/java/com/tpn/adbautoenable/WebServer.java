@@ -240,6 +240,13 @@ public class WebServer extends NanoHTTPD {
         SharedPreferences prefs = getPrefs();
         String lastStatus = prefs.getString("last_status", "Not run yet");
         boolean isPaired = prefs.getBoolean("is_paired", false);
+        if (!isPaired) {
+            // Reinstalling clears preferences but the ADB key files may have
+            // been restored from backup. Do not ask for a pairing that the
+            // device already trusts.
+            isPaired = new File(context.getFilesDir(), "adb_key").exists()
+                    && new File(context.getFilesDir(), "adb_cert").exists();
+        }
         int targetPort = getTargetPort();
         int currentPort = getCurrentPort();
         boolean webServerEnabled = prefs.getBoolean("web_server_enabled", true);

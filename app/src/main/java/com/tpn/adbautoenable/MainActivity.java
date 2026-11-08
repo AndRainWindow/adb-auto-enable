@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
         } else if (bootState == AutostartHelper.BOOT_PENDING) {
             autostartText.setTextColor(0xFFF57C00);
             autostartText.setText("\nBoot autostart: not confirmed yet.\n"
-                    + "Some ROMs send BOOT_COMPLETED only after the first unlock. Check again in a few minutes.");
+                    + "This installation has not received a boot broadcast. Reboot the device once to verify; some ROMs send BOOT_COMPLETED only after the first unlock.");
         } else {
             autostartText.setTextColor(0xFFC62828);
             autostartText.setText("\nBoot autostart: NO BOOT BROADCAST SINCE THIS REBOOT\n"
