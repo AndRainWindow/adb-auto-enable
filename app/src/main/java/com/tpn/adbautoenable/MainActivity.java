@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -21,15 +23,11 @@ public class MainActivity extends Activity {
         SharedPreferences prefs = NetworkUtils.getDeviceProtectedPrefs(this, PREFS_NAME);
         boolean webServerEnabled = prefs.getBoolean("web_server_enabled", true);
 
-        // Start or stop the foreground service to manage web server state based on user preference
-        if (webServerEnabled) {
-            Intent serviceIntent = new Intent(this, AdbConfigService.class);
-            serviceIntent.putExtra("boot_config", false);
-            startForegroundService(serviceIntent);
-        } else {
-            Intent serviceIntent = new Intent(this, AdbConfigService.class);
-            stopService(serviceIntent);
-        }
+        // The ADB service must run independently of the optional web interface.
+        // Disabling the web UI must never prevent Wireless Debugging recovery.
+        Intent serviceIntent = new Intent(this, AdbConfigService.class);
+        serviceIntent.putExtra("boot_config", false);
+        startForegroundService(serviceIntent);
 
         // Create UI
         LinearLayout layout = new LinearLayout(this);
@@ -42,7 +40,9 @@ public class MainActivity extends Activity {
 
         TextView statusText = new TextView(this);
         statusText.setTextSize(16);
-        statusText.setText("\nWeb interface running on:\n");
+        statusText.setText(webServerEnabled
+                ? "\nWeb interface running on:\n"
+                : "\nWeb interface disabled (ADB service remains active).\n");
 
         TextView urlText = new TextView(this);
         urlText.setTextSize(18);
@@ -59,25 +59,97 @@ public class MainActivity extends Activity {
         webServerSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
             prefs.edit().putBoolean("web_server_enabled", isChecked).apply();
 
-            if (isChecked) {
-                Intent serviceIntent = new Intent(this, AdbConfigService.class);
-                serviceIntent.putExtra("boot_config", false);
-                startForegroundService(serviceIntent);
-            } else {
-                stopService(new Intent(this, AdbConfigService.class));
-            }
+            // Notify the service to start/stop only NanoHTTPD, not the ADB
+            // configuration foreground service itself.
+            Intent toggleIntent = new Intent(this, AdbConfigService.class);
+            toggleIntent.putExtra("boot_config", false);
+            startForegroundService(toggleIntent);
         });
 
         TextView instructionText = new TextView(this);
         instructionText.setText("\nOpen this URL in your browser to configure pairing, target ports, and manage the app.\n\nYou can also toggle the web server directly from this screen if you want it disabled on future reboots.");
 
+        // WRITE_SECURE_SETTINGS is a development/signature permission: it cannot be
+        // requested at runtime and is lost on every uninstall/reinstall. Without it
+        // the service silently skips all Settings.Global writes. Surface the exact
+        // state and the recovery command instead of failing only in logcat.
+        TextView permissionText = new TextView(this);
+        permissionText.setTextSize(16);
+        boolean secureSettingsGranted = checkSelfPermission(
+                "android.permission.WRITE_SECURE_SETTINGS")
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (secureSettingsGranted) {
+            permissionText.setText("\nWRITE_SECURE_SETTINGS: granted");
+        } else {
+            permissionText.setTextColor(0xFFC62828);
+            permissionText.setText("\nWRITE_SECURE_SETTINGS: NOT GRANTED\n"
+                    + "Wireless debugging cannot be enabled automatically.\n"
+                    + "On a computer connected via USB ADB, run:\n"
+                    + "adb shell pm grant " + getPackageName()
+                    + " android.permission.WRITE_SECURE_SETTINGS");
+        }
+
+        // Declaring RECEIVE_BOOT_COMPLETED is not enough on vendor ROMs.
+        // MIUI/HyperOS, EMUI, ColorOS and FuntouchOS/OriginOS refuse to launch
+        // a third-party process at boot until the user enables "Autostart" in
+        // the system settings. There is no public API and no non-root way to
+        // flip that switch, so make the observed state visible and offer a
+        // one-tap route to the vendor screen.
+        TextView autostartText = new TextView(this);
+        autostartText.setTextSize(16);
+        int bootState = AutostartHelper.getBootState(this);
+        if (bootState == AutostartHelper.BOOT_OK) {
+            autostartText.setText("\nBoot autostart: OK - a boot broadcast was received after this reboot.");
+        } else if (bootState == AutostartHelper.BOOT_PENDING) {
+            autostartText.setTextColor(0xFFF57C00);
+            autostartText.setText("\nBoot autostart: not confirmed yet.\n"
+                    + "This installation has not received a boot broadcast. Reboot the device once to verify; some ROMs send BOOT_COMPLETED only after the first unlock.");
+        } else {
+            autostartText.setTextColor(0xFFC62828);
+            autostartText.setText("\nBoot autostart: NO BOOT BROADCAST SINCE THIS REBOOT\n"
+                    + "The system is blocking this app from starting at boot, so port 5555 will not come back until you open the app by hand.\n"
+                    + "Use the button below to allow Autostart for ADB Auto-Enable.");
+        }
+
+        Button autostartButton = new Button(this);
+        autostartButton.setText("Open system Autostart settings");
+        autostartButton.setOnClickListener(v -> AutostartHelper.openAutostartSettings(this));
+
+        TextView batteryText = new TextView(this);
+        batteryText.setTextSize(14);
+        int batteryState = AutostartHelper.batteryPolicyState(this);
+        batteryText.setText(batteryState == AutostartHelper.BATTERY_IGNORED
+                ? "\nBattery optimization: ignored (OK)"
+                : batteryState == AutostartHelper.BATTERY_NOT_RESTRICTED
+                ? "\nBattery optimization: background execution not restricted (OK). Some ROMs apply 'No restrictions' as a vendor policy that does not appear in Android's Doze whitelist."
+                : "\nBattery optimization: not confirmed. Set this app to 'No restrictions' in your ROM's power-saving settings, otherwise the service may be killed in the background.");
+
+        Button batteryButton = new Button(this);
+        batteryButton.setText("Open battery optimization settings");
+        batteryButton.setOnClickListener(v -> AutostartHelper.openBatteryOptimizationSettings(this));
+
+        TextView lastStatusText = new TextView(this);
+        lastStatusText.setTextSize(14);
+        lastStatusText.setText("\nLast status: "
+                + prefs.getString("last_status", "Not run yet"));
+
         layout.addView(titleText);
         layout.addView(statusText);
         layout.addView(urlText);
         layout.addView(webServerSwitch);
+        layout.addView(permissionText);
+        layout.addView(autostartText);
+        layout.addView(autostartButton);
+        layout.addView(batteryText);
+        layout.addView(batteryButton);
+        layout.addView(lastStatusText);
         layout.addView(instructionText);
 
-        setContentView(layout);
+        // The extra diagnostics make the layout taller than the screen on
+        // small devices; keep everything reachable.
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(layout);
+        setContentView(scrollView);
     }
 
     private String getLocalIpAddress() {

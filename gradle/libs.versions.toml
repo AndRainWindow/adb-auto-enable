@@ -2,16 +2,16 @@
 agp = "9.3.1"
 conscrypt = "2.6.1"
 nanohttpd = "2.3.1"
-libadb = "1.0.1"
-bouncycastle = "1.70"
+libadb = "3.1.1"
+bouncycastle = "1.81"
 androidxAnnotation = "1.10.0"
 
 [libraries]
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
 libadb = { group = "com.github.MuntashirAkon", name = "libadb-android", version.ref = "libadb" }
 conscrypt = { group = "org.conscrypt", name = "conscrypt-android", version.ref = "conscrypt" }
-bouncycastle-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk15on", version.ref = "bouncycastle" }
-bouncycastle-bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk15on", version.ref = "bouncycastle" }
+bouncycastle-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.ref = "bouncycastle" }
+bouncycastle-bcpkix = { group = "org.bouncycastle", name = "bcpkix-jdk15to18", version.ref = "bouncycastle" }
 androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 
 [plugins]

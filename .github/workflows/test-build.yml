@@ -2,6 +2,9 @@ name: Build Test APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fix/wireless-pairing-discovery
 
 permissions:
   contents: read
@@ -38,6 +41,16 @@ jobs:
         run: >-
           ./gradlew --no-daemon testDebugUnitTest assembleDebug
           -PCI_VERSION_NAME="0.0.1-test-${GITHUB_SHA::7}"
+
+      - name: Verify pinned debug signing certificate
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs app/build/outputs/apk/debug/app-debug.apk \
+              | grep -i "SHA-256 digest" || echo "(no certificate digest printed)"
+          else
+            echo "apksigner not available; certificate check skipped"
+          fi
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4

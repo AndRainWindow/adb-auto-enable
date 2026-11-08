@@ -29,7 +29,36 @@ Android 14 introduces enhanced ADB security which disables and randomises the po
 
 - Android 14+ (tested on Chromecast with Google TV and modern Android builds)
 - A Wi-Fi connection: It may be possible to use an unrouted routed wifi connection to start the service, see issue [#24](https://github.com/mouldybread/adb-auto-enable/issues/24)
-- WRITE_SECURE_SETTINGS: The app needs this permission and grants it to itself. Some OEM builds block this, so the grant fails or doesn't persist. See issue [#25](https://github.com/mouldybread/adb-auto-enable/issues/25).
+- WRITE_SECURE_SETTINGS: The app needs this permission and tries to grant it to itself over the local ADB connection after pairing. Some OEM builds block this, so the grant may fail or may not persist. See issue [#25](https://github.com/mouldybread/adb-auto-enable/issues/25).
+
+> [!IMPORTANT]
+> **This permission is not part of the APK.** `WRITE_SECURE_SETTINGS` is a development/signature permission: it cannot be requested at runtime, and any grant is **lost when the app is uninstalled and reinstalled** (for example when switching between CI-built debug APKs that use different signing keys). The app shows the current state on its main screen and in `/api/status` as `writeSecureSettingsGranted`. If it is not granted, run this once from a computer connected over USB ADB:
+>
+> ```bash
+> adb shell pm grant <installed-package> android.permission.WRITE_SECURE_SETTINGS
+> ```
+>
+> Use `com.tpn.adbautoenable.debug` for the Debug build and `com.tpn.adbautoenable` for Release; confirm with `adb shell pm list packages | grep adbautoenable`. Without this permission every `Settings.Global` write is skipped, so wireless debugging never starts and port 5555 is never restored — while the build and CI still pass.
+
+> [!IMPORTANT]
+> **Allow Autostart on the device (required on most vendor ROMs, no root needed).** Declaring `RECEIVE_BOOT_COMPLETED` is only half the story: MIUI/HyperOS, EMUI, ColorOS and FuntouchOS/OriginOS refuse to launch a third-party process at boot unless the user enables the app in the vendor's **Autostart** screen. Verified on a Redmi 2407FRK8EC (HyperOS / Android 16):
+>
+> ```
+> W/BroadcastQueueInjector: Unable to launch app com.tpn.adbautoenable.debug/10287
+>   for broadcast Intent { act=android.intent.action.LOCKED_BOOT_COMPLETED }:
+>   process is not permitted to auto start
+> ```
+>
+> In that state `BootReceiver` never runs, the app's own logs stay completely empty, and port 5555 does not come back after a reboot — even though the service and the pairing keys are fine. There is **no public API and no non-root method** to flip this switch; it is a one-time manual step:
+>
+> 1. Open the app once, tap **Open system Autostart settings**, and enable ADB Auto-Enable. (Equivalent: *Settings → Apps → Manage apps → ADB Auto-Enable → Autostart*, or *Security / Phone Manager → Permissions → Autostart*.)
+> 2. Tap **Open battery optimization settings** and set this app to "No restrictions", otherwise the OEM may kill the foreground service later.
+>
+>    On MIUI/HyperOS this switch is a vendor power-saving policy, **not** Android's Doze whitelist: `cmd deviceidle whitelist` will not list the app, while `cmd appops get com.tpn.adbautoenable.debug` shows `RUN_ANY_IN_BACKGROUND: allow`. The app checks both the Doze whitelist and `ActivityManager.isBackgroundRestricted()` (the public API over that app op), and reports `background execution not restricted (OK)` instead of wrongly warning that the app is still restricted.
+>
+> 3. After the next reboot the main screen shows `Boot autostart: OK`, and `/api/status` reports `bootReceiverState` as `ok`, `pending` or `missing`.
+>
+> A successful **manual** launch of the app is not proof that boot recovery works: it starts the same service and restores 5555, which is easily mistaken for a passing reboot test.
 
 ### 1. Installation
 
@@ -44,6 +73,11 @@ adb install app/build/outputs/apk/release/app-release.apk
 
 > [!IMPORTANT]
 > **First-Time Installation Note:** After installing the APK, you **must open the app on your device once** (via *Settings → Apps → See All Apps → ADB Auto-Enable*) to start the background web server before you can access `http://your-device-ip:9093`.
+
+> [!NOTE]
+> **Debug builds use a pinned, committed keystore.** `app/debug.keystore` is checked into this repository so local builds, CI artifacts and reinstalls all share one signature. Without it, every GitHub Actions runner generates a fresh `~/.android/debug.keystore`: switching between test APKs then fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, and an uninstall/reinstall drops both the ADB pairing key and the `WRITE_SECURE_SETTINGS` grant. This key is **public and for debug builds only** — never use it for a release, and never commit a release keystore. CI prints the APK certificate's SHA-256 digest in the *Verify pinned debug signing certificate* step.
+>
+> After any reinstall that changes the signature you must redo the initial pairing and run `adb shell pm grant <installed-package> android.permission.WRITE_SECURE_SETTINGS` again. The app's main screen shows the current permission state and the exact command.
 
 ### 2. Initial Pairing
 
@@ -84,6 +118,8 @@ Look for:
 - `"Step 0: Immediately enabling wireless debugging setting..."`
 - `"Waiting for WiFi connection..."`
 - `"Successfully configured ADB on port 5555!"`
+
+If **none** of these lines appear at all, the app was never started at boot — this is an OEM autostart block, not a failure inside the service. Check with `adb logcat -d | grep "not permitted to auto start"` and enable Autostart as described under Quick Start. Also note that HyperOS may postpone `BOOT_COMPLETED` until several minutes after the reboot / first unlock.
 
 ### Port 5555 Unreachable After the Device Sleeps
 
