@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 
@@ -87,6 +89,42 @@ public class MainActivity extends Activity {
                     + " android.permission.WRITE_SECURE_SETTINGS");
         }
 
+        // Declaring RECEIVE_BOOT_COMPLETED is not enough on vendor ROMs.
+        // MIUI/HyperOS, EMUI, ColorOS and FuntouchOS/OriginOS refuse to launch
+        // a third-party process at boot until the user enables "Autostart" in
+        // the system settings. There is no public API and no non-root way to
+        // flip that switch, so make the observed state visible and offer a
+        // one-tap route to the vendor screen.
+        TextView autostartText = new TextView(this);
+        autostartText.setTextSize(16);
+        int bootState = AutostartHelper.getBootState(this);
+        if (bootState == AutostartHelper.BOOT_OK) {
+            autostartText.setText("\nBoot autostart: OK - a boot broadcast was received after this reboot.");
+        } else if (bootState == AutostartHelper.BOOT_PENDING) {
+            autostartText.setTextColor(0xFFF57C00);
+            autostartText.setText("\nBoot autostart: not confirmed yet.\n"
+                    + "Some ROMs send BOOT_COMPLETED only after the first unlock. Check again in a few minutes.");
+        } else {
+            autostartText.setTextColor(0xFFC62828);
+            autostartText.setText("\nBoot autostart: NO BOOT BROADCAST SINCE THIS REBOOT\n"
+                    + "The system is blocking this app from starting at boot, so port 5555 will not come back until you open the app by hand.\n"
+                    + "Use the button below to allow Autostart for ADB Auto-Enable.");
+        }
+
+        Button autostartButton = new Button(this);
+        autostartButton.setText("Open system Autostart settings");
+        autostartButton.setOnClickListener(v -> AutostartHelper.openAutostartSettings(this));
+
+        TextView batteryText = new TextView(this);
+        batteryText.setTextSize(14);
+        batteryText.setText(AutostartHelper.isIgnoringBatteryOptimizations(this)
+                ? "\nBattery optimization: ignored (OK)"
+                : "\nBattery optimization: NOT ignored - the service may be killed in the background. Add it to the whitelist.");
+
+        Button batteryButton = new Button(this);
+        batteryButton.setText("Open battery optimization settings");
+        batteryButton.setOnClickListener(v -> AutostartHelper.openBatteryOptimizationSettings(this));
+
         TextView lastStatusText = new TextView(this);
         lastStatusText.setTextSize(14);
         lastStatusText.setText("\nLast status: "
@@ -97,10 +135,18 @@ public class MainActivity extends Activity {
         layout.addView(urlText);
         layout.addView(webServerSwitch);
         layout.addView(permissionText);
+        layout.addView(autostartText);
+        layout.addView(autostartButton);
+        layout.addView(batteryText);
+        layout.addView(batteryButton);
         layout.addView(lastStatusText);
         layout.addView(instructionText);
 
-        setContentView(layout);
+        // The extra diagnostics make the layout taller than the screen on
+        // small devices; keep everything reachable.
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(layout);
+        setContentView(scrollView);
     }
 
     private String getLocalIpAddress() {

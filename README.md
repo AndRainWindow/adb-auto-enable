@@ -40,6 +40,23 @@ Android 14 introduces enhanced ADB security which disables and randomises the po
 >
 > Use `com.tpn.adbautoenable.debug` for the Debug build and `com.tpn.adbautoenable` for Release; confirm with `adb shell pm list packages | grep adbautoenable`. Without this permission every `Settings.Global` write is skipped, so wireless debugging never starts and port 5555 is never restored — while the build and CI still pass.
 
+> [!IMPORTANT]
+> **Allow Autostart on the device (required on most vendor ROMs, no root needed).** Declaring `RECEIVE_BOOT_COMPLETED` is only half the story: MIUI/HyperOS, EMUI, ColorOS and FuntouchOS/OriginOS refuse to launch a third-party process at boot unless the user enables the app in the vendor's **Autostart** screen. Verified on a Redmi 2407FRK8EC (HyperOS / Android 16):
+>
+> ```
+> W/BroadcastQueueInjector: Unable to launch app com.tpn.adbautoenable.debug/10287
+>   for broadcast Intent { act=android.intent.action.LOCKED_BOOT_COMPLETED }:
+>   process is not permitted to auto start
+> ```
+>
+> In that state `BootReceiver` never runs, the app's own logs stay completely empty, and port 5555 does not come back after a reboot — even though the service and the pairing keys are fine. There is **no public API and no non-root method** to flip this switch; it is a one-time manual step:
+>
+> 1. Open the app once, tap **Open system Autostart settings**, and enable ADB Auto-Enable. (Equivalent: *Settings → Apps → Manage apps → ADB Auto-Enable → Autostart*, or *Security / Phone Manager → Permissions → Autostart*.)
+> 2. Tap **Open battery optimization settings** and set this app to "No restrictions", otherwise the OEM may kill the foreground service later.
+> 3. After the next reboot the main screen shows `Boot autostart: OK`, and `/api/status` reports `bootReceiverState` as `ok`, `pending` or `missing`.
+>
+> A successful **manual** launch of the app is not proof that boot recovery works: it starts the same service and restores 5555, which is easily mistaken for a passing reboot test.
+
 ### 1. Installation
 
 Download and install the APK from [Releases](https://github.com/mouldybread/adb-auto-enable/releases), or build from source:
@@ -93,6 +110,8 @@ Look for:
 - `"Step 0: Immediately enabling wireless debugging setting..."`
 - `"Waiting for WiFi connection..."`
 - `"Successfully configured ADB on port 5555!"`
+
+If **none** of these lines appear at all, the app was never started at boot — this is an OEM autostart block, not a failure inside the service. Check with `adb logcat -d | grep "not permitted to auto start"` and enable Autostart as described under Quick Start. Also note that HyperOS may postpone `BOOT_COMPLETED` until several minutes after the reboot / first unlock.
 
 ### Port 5555 Unreachable After the Device Sleeps
 

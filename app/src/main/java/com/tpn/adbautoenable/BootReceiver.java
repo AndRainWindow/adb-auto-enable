@@ -13,6 +13,12 @@ public class BootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         Log.i(TAG, "Received broadcast: " + action);
 
+        // Vendor ROMs often refuse to start the process for BOOT_COMPLETED
+        // unless the user enabled Autostart in the system settings. Record
+        // that a boot broadcast really arrived so the UI can distinguish
+        // "autostart blocked" from "recovery logic broken".
+        AutostartHelper.recordBootBroadcast(context, action);
+
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
             // CE-backed ADB keys are usable only after the user has unlocked.
             Log.i(TAG, "Boot completed; starting full ADB recovery");

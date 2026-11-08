@@ -256,10 +256,13 @@ public class WebServer extends NanoHTTPD {
             Log.w(TAG, "Unable to read adb_wifi_enabled", e);
         }
 
+        String bootReceiverState = AutostartHelper.getBootStateText(context);
+
         String json = String.format(Locale.US,
-                "{\"lastStatus\":\"%s\",\"currentPort\":%d,\"isPaired\":%b,\"adb5555Available\":%b,\"targetPort\":%d,\"webServerEnabled\":%b,\"writeSecureSettingsGranted\":%b,\"adbWifiEnabled\":%d,\"serviceRunning\":%b}",
+                "{\"lastStatus\":\"%s\",\"currentPort\":%d,\"isPaired\":%b,\"adb5555Available\":%b,\"targetPort\":%d,\"webServerEnabled\":%b,\"writeSecureSettingsGranted\":%b,\"adbWifiEnabled\":%d,\"serviceRunning\":%b,\"bootReceiverState\":\"%s\"}",
                 lastStatus, currentPort, isPaired, adbTargetAvailable, targetPort,
-                webServerEnabled, writeSecureSettingsGranted, adbWifiEnabled, true
+                webServerEnabled, writeSecureSettingsGranted, adbWifiEnabled, true,
+                bootReceiverState
         );
         Log.d(TAG, "handleStatus() completed");
         return newFixedLengthResponse(Response.Status.OK, "application/json", json);
@@ -675,7 +678,11 @@ public class WebServer extends NanoHTTPD {
                 "                    document.getElementById('port-status').innerHTML = data.adb5555Available ? \n" +
                 "                        '<span class=\"status good\">✓ Available</span>' : \n" +
                 "                        '<span class=\"status bad\">✗ Not available</span>';\n" +
-                "                    document.getElementById('last-status').textContent = data.lastStatus;\n" +
+                "                    let statusText = data.lastStatus || '';\n" +
+                "                    if (data.bootReceiverState === 'missing') {\n" +
+                "                        statusText += ' | WARNING: no boot broadcast since this reboot - enable Autostart in system settings';\n" +
+                "                    }\n" +
+                "                    document.getElementById('last-status').textContent = statusText;\n" +
                 "                    document.getElementById('current-port').textContent = (data.currentPort === -1) ? 'NONE' : data.currentPort;\n" +
                 "                    \n" +
                 "                    const portInput = document.getElementById('target-port-input');\n" +
