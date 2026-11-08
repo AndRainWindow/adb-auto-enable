@@ -58,6 +58,18 @@ android {
     }
 
     signingConfigs {
+        // AGP's default "debug" config points at ~/.android/debug.keystore,
+        // which is generated fresh on every CI runner. Each artifact then has
+        // a different signature: test APKs cannot be updated in place, and a
+        // reinstall loses both the ADB pairing key and the manually granted
+        // WRITE_SECURE_SETTINGS permission. Pin the committed, public debug
+        // key so local builds and CI artifacts are interchangeable.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         create("release") {
             storeFile = file(System.getenv("KEYSTORE_FILE") ?: "keystore.jks")
             storePassword = System.getenv("KEYSTORE_PASSWORD")
@@ -69,6 +81,7 @@ android {
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".debug"
+            signingConfig = signingConfigs.getByName("debug")
         }
         getByName("release") {
             isMinifyEnabled = false

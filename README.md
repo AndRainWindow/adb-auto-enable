@@ -71,6 +71,11 @@ adb install app/build/outputs/apk/release/app-release.apk
 > [!IMPORTANT]
 > **First-Time Installation Note:** After installing the APK, you **must open the app on your device once** (via *Settings → Apps → See All Apps → ADB Auto-Enable*) to start the background web server before you can access `http://your-device-ip:9093`.
 
+> [!NOTE]
+> **Debug builds use a pinned, committed keystore.** `app/debug.keystore` is checked into this repository so local builds, CI artifacts and reinstalls all share one signature. Without it, every GitHub Actions runner generates a fresh `~/.android/debug.keystore`: switching between test APKs then fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, and an uninstall/reinstall drops both the ADB pairing key and the `WRITE_SECURE_SETTINGS` grant. This key is **public and for debug builds only** — never use it for a release, and never commit a release keystore. CI prints the APK certificate's SHA-256 digest in the *Verify pinned debug signing certificate* step.
+>
+> After any reinstall that changes the signature you must redo the initial pairing and run `adb shell pm grant <installed-package> android.permission.WRITE_SECURE_SETTINGS` again. The app's main screen shows the current permission state and the exact command.
+
 ### 2. Initial Pairing
 
 1. Navigate to `http://your-device-ip:9093` in a browser.

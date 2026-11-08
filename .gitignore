@@ -6,3 +6,7 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+
+# Public, debug-only key intentionally committed so local builds and CI
+# artifacts share one signature. NEVER commit a release keystore.
+!app/debug.keystore
