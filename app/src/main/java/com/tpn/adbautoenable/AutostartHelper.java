@@ -1,10 +1,12 @@
 package com.tpn.adbautoenable;
 
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Build;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.provider.Settings;
@@ -37,6 +39,10 @@ final class AutostartHelper {
     static final int BOOT_OK = 0;
     static final int BOOT_PENDING = 1;
     static final int BOOT_MISSING = 2;
+
+    static final int BATTERY_IGNORED = 0;
+    static final int BATTERY_NOT_RESTRICTED = 1;
+    static final int BATTERY_UNCONFIRMED = 2;
 
     // Vendor autostart screens, ordered by the devices this project targets.
     // They are tried directly rather than filtered with resolveActivity():
@@ -150,6 +156,11 @@ final class AutostartHelper {
         }
     }
 
+    /**
+     * Standard Doze whitelist state. On MIUI/HyperOS the vendor's
+     * "No restrictions" power-saving policy is NOT written here, so a false
+     * result alone does not mean the user left the app restricted.
+     */
     static boolean isIgnoringBatteryOptimizations(Context context) {
         try {
             PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
@@ -157,6 +168,29 @@ final class AutostartHelper {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Distinguish "in Android's Doze whitelist" from "background execution is
+     * not restricted". ROMs such as MIUI/HyperOS apply the 'No restrictions'
+     * switch as a vendor power-saving policy that does not appear in the Doze
+     * whitelist, so checking PowerManager alone tells a user who already
+     * configured the app that it is still restricted.
+     *
+     * ActivityManager.isBackgroundRestricted() is the public API over the
+     * RUN_ANY_IN_BACKGROUND app op (API 28+); minSdk is lower, hence the guard.
+     */
+    static int batteryPolicyState(Context context) {
+        if (isIgnoringBatteryOptimizations(context)) return BATTERY_IGNORED;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+                if (am != null && !am.isBackgroundRestricted()) return BATTERY_NOT_RESTRICTED;
+            } catch (Exception ignored) {
+                // Some ROMs do not expose a reliable background-restriction state.
+            }
+        }
+        return BATTERY_UNCONFIRMED;
     }
 
     private static String readBootId() {

@@ -53,6 +53,9 @@ Android 14 introduces enhanced ADB security which disables and randomises the po
 >
 > 1. Open the app once, tap **Open system Autostart settings**, and enable ADB Auto-Enable. (Equivalent: *Settings → Apps → Manage apps → ADB Auto-Enable → Autostart*, or *Security / Phone Manager → Permissions → Autostart*.)
 > 2. Tap **Open battery optimization settings** and set this app to "No restrictions", otherwise the OEM may kill the foreground service later.
+>
+>    On MIUI/HyperOS this switch is a vendor power-saving policy, **not** Android's Doze whitelist: `cmd deviceidle whitelist` will not list the app, while `cmd appops get com.tpn.adbautoenable.debug` shows `RUN_ANY_IN_BACKGROUND: allow`. The app checks both the Doze whitelist and `ActivityManager.isBackgroundRestricted()` (the public API over that app op), and reports `background execution not restricted (OK)` instead of wrongly warning that the app is still restricted.
+>
 > 3. After the next reboot the main screen shows `Boot autostart: OK`, and `/api/status` reports `bootReceiverState` as `ok`, `pending` or `missing`.
 >
 > A successful **manual** launch of the app is not proof that boot recovery works: it starts the same service and restores 5555, which is easily mistaken for a passing reboot test.

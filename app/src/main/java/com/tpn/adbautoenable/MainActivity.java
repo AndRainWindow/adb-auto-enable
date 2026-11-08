@@ -117,9 +117,12 @@ public class MainActivity extends Activity {
 
         TextView batteryText = new TextView(this);
         batteryText.setTextSize(14);
-        batteryText.setText(AutostartHelper.isIgnoringBatteryOptimizations(this)
+        int batteryState = AutostartHelper.batteryPolicyState(this);
+        batteryText.setText(batteryState == AutostartHelper.BATTERY_IGNORED
                 ? "\nBattery optimization: ignored (OK)"
-                : "\nBattery optimization: NOT ignored - the service may be killed in the background. Add it to the whitelist.");
+                : batteryState == AutostartHelper.BATTERY_NOT_RESTRICTED
+                ? "\nBattery optimization: background execution not restricted (OK). Some ROMs apply 'No restrictions' as a vendor policy that does not appear in Android's Doze whitelist."
+                : "\nBattery optimization: not confirmed. Set this app to 'No restrictions' in your ROM's power-saving settings, otherwise the service may be killed in the background.");
 
         Button batteryButton = new Button(this);
         batteryButton.setText("Open battery optimization settings");
